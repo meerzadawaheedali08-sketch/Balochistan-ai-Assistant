@@ -1,5 +1,8 @@
-streamlit
-groq
-reportlab
-python-docx
-pypdf
+streamlit>=1.40
+groq>=0.30
+reportlab>=4.0
+python-docx>=1.1
+pypdf>=4.0
+pillow>=10.0
+arabic-reshaper>=3.0
+python-bidi>=0.5
