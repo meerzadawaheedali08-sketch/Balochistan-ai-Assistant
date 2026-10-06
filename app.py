@@ -12,6 +12,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_LEFT
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from docx import Document
+from pypdf import PdfReader
 
 
 # ============================================================
@@ -25,7 +26,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-TEXT_MODEL = "openai/gpt-oss-120b"
+TEXT_MODEL = "llama-3.3-70b-versatile"
 VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 LANGUAGES = ["English", "اردو", "Roman Urdu"]
@@ -307,7 +308,7 @@ st.markdown(
     }
 
     .upload-box {
-        background: #f7faf8;
+        background: linear-gradient(180deg, #fbfdfc 0%, #f5f9f7 100%);
         border: 1px solid var(--border);
         border-radius: 15px;
         padding: .7rem;
@@ -426,13 +427,13 @@ if st.session_state.selected_service is None:
         """
         <div class="hero">
             <h1>What do you need today?</h1>
-            <p>Choose a tool below and its dedicated workspace will open.</p>
+            <p>Choose a tool and work in a focused workspace.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    st.markdown('<div class="section-title">Services</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Choose a service</div>', unsafe_allow_html=True)
 
     keys = list(SERVICES.keys())
 
@@ -489,49 +490,137 @@ else:
 
 
     # ========================================================
-    # IMAGE / CAMERA COMPONENT
+    # OPTIONAL ATTACHMENTS
+    # Camera is NOT opened until the user explicitly selects it.
     # ========================================================
 
-    def image_input(title="Photo or document image"):
+    def attachment_input(title="Attachment"):
         st.markdown('<div class="upload-box">', unsafe_allow_html=True)
         st.markdown(f"**{title}**")
 
-        c1, c2 = st.columns(2)
+        attachment_mode = st.radio(
+            "Add something",
+            [
+                "None",
+                "Take Photo",
+                "Image File",
+                "PDF",
+                "DOCX",
+                "TXT",
+            ],
+            horizontal=True,
+            key=f"attachment_mode_{service_key}",
+        )
 
-        with c1:
-            camera_photo = st.camera_input(
-                "Take a photo",
+        selected = None
+        attachment_kind = None
+        extracted_text = ""
+
+        if attachment_mode == "Take Photo":
+            st.info("Camera will only be requested after you choose this option.")
+            selected = st.camera_input(
+                "Take photo",
                 key=f"camera_{service_key}",
-                help="On mobile, allow camera permission when your browser asks.",
+                help="Allow camera permission only if you want to take a photo.",
             )
+            if selected is not None:
+                attachment_kind = "image"
+                st.image(
+                    selected,
+                    caption="Selected photo",
+                    use_container_width=True,
+                )
 
-        with c2:
-            uploaded_photo = st.file_uploader(
-                "Upload image",
+        elif attachment_mode == "Image File":
+            selected = st.file_uploader(
+                "Choose an image",
                 type=["jpg", "jpeg", "png", "webp"],
                 key=f"image_upload_{service_key}",
-                help="JPG, JPEG, PNG and WEBP",
+                help="JPG, JPEG, PNG or WEBP",
             )
+            if selected is not None:
+                attachment_kind = "image"
+                st.image(
+                    selected,
+                    caption="Selected image",
+                    use_container_width=True,
+                )
 
-        selected = camera_photo if camera_photo is not None else uploaded_photo
-
-        if selected is not None:
-            st.image(
-                selected,
-                caption="Selected image",
-                use_container_width=True,
+        elif attachment_mode == "PDF":
+            selected = st.file_uploader(
+                "Choose a PDF",
+                type=["pdf"],
+                key=f"pdf_upload_{service_key}",
+                help="PDF documents up to your Streamlit upload limit.",
             )
+            if selected is not None:
+                attachment_kind = "document"
+                try:
+                    reader = PdfReader(selected)
+                    pages = []
+                    for page in reader.pages:
+                        pages.append(page.extract_text() or "")
+                    extracted_text = "\n\n".join(pages).strip()
+                    if extracted_text:
+                        st.success(f"PDF attached • {len(reader.pages)} page(s)")
+                    else:
+                        st.warning(
+                            "This PDF appears to contain scanned images only. "
+                            "Use Image File or Take Photo for visual reading."
+                        )
+                except Exception:
+                    st.error("This PDF could not be read.")
+
+        elif attachment_mode == "DOCX":
+            selected = st.file_uploader(
+                "Choose a DOCX",
+                type=["docx"],
+                key=f"docx_upload_{service_key}",
+            )
+            if selected is not None:
+                attachment_kind = "document"
+                try:
+                    doc = Document(io.BytesIO(selected.getvalue()))
+                    paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+                    extracted_text = "\n".join(paragraphs).strip()
+                    st.success("DOCX attached.")
+                except Exception:
+                    st.error("This DOCX could not be read.")
+
+        elif attachment_mode == "TXT":
+            selected = st.file_uploader(
+                "Choose a TXT",
+                type=["txt"],
+                key=f"txt_upload_{service_key}",
+            )
+            if selected is not None:
+                attachment_kind = "document"
+                try:
+                    extracted_text = selected.getvalue().decode("utf-8", errors="replace").strip()
+                    st.success("TXT attached.")
+                except Exception:
+                    st.error("This TXT could not be read.")
+
+        if selected is not None and attachment_kind == "image":
             st.success("Image attached.")
 
         st.markdown("</div>", unsafe_allow_html=True)
-        return selected
+        return selected, attachment_kind, extracted_text
 
+
+    image_file = None
+    image_kind = None
+    attachment_text = ""
 
     # ========================================================
     # SERVICE WORKSPACES
     # ========================================================
 
     if service_key == "email":
+        email_file, email_attachment_kind, email_attachment_text = attachment_input(
+            "Attachment (optional)"
+        )
+
         with st.form("email_form"):
             name = st.text_input("Your name")
             recipient = st.text_input("Recipient / organization")
@@ -558,7 +647,12 @@ else:
             f"Tone: {tone}\n"
             "Create a ready-to-send email."
         )
-        can_generate = submitted and bool(purpose.strip())
+
+        image_file = email_file
+        image_kind = email_attachment_kind
+        attachment_text = email_attachment_text
+
+        can_generate = submitted and bool(purpose.strip() or email_file)
 
         if submitted and not purpose.strip():
             st.warning("Please enter the email details.")
@@ -568,8 +662,8 @@ else:
     elif service_key == "cv":
         st.markdown("### Personal photo")
 
-        cv_photo = image_input(
-            "Upload your profile photo or take one with the camera"
+        cv_photo, cv_attachment_kind, cv_extracted_text = attachment_input(
+            "Profile photo / supporting document (optional)"
         )
 
         with st.form("cv_form"):
@@ -662,6 +756,8 @@ Write a polished CV with:
 Only use information supplied by the user.
 """
 
+        prompt = cv_prompt
+
         can_generate = submitted and bool(
             (full_name + education + skills + target_role).strip()
         )
@@ -675,9 +771,13 @@ Only use information supplied by the user.
         )
 
         image_file = cv_photo
+        image_kind = cv_attachment_kind
+        attachment_text = cv_extracted_text
 
     elif service_key == "kisan":
-        kisan_photo = image_input("Upload crop, leaf, plant or field photo")
+        kisan_photo, kisan_attachment_kind, kisan_extracted_text = attachment_input(
+            "Crop photo or supporting document (optional)"
+        )
 
         with st.form("kisan_form"):
             crop = st.text_input("Crop")
@@ -701,13 +801,17 @@ Only use information supplied by the user.
         )
         can_generate = submitted and bool(question.strip() or kisan_photo)
         image_file = kisan_photo
+        image_kind = kisan_attachment_kind
+        attachment_text = kisan_extracted_text
         extra = "Give practical general guidance. Do not invent pesticide doses."
 
         if submitted and not can_generate:
             st.warning("Write a question or attach an image.")
 
     elif service_key == "health":
-        health_photo = image_input("Upload a relevant image if it helps explain your question")
+        health_photo, health_attachment_kind, health_extracted_text = attachment_input(
+            "Photo or supporting document (optional)"
+        )
 
         st.warning(
             "This provides general information only. It is not a diagnosis or a substitute for a doctor."
@@ -732,13 +836,17 @@ Only use information supplied by the user.
         )
         can_generate = submitted and bool(question.strip() or health_photo)
         image_file = health_photo
+        image_kind = health_attachment_kind
+        attachment_text = health_extracted_text
         extra = "Keep the response educational and include when professional care is appropriate."
 
         if submitted and not can_generate:
             st.warning("Write a question or attach an image.")
 
     elif service_key == "gov":
-        gov_photo = image_input("Upload a notice, form or scheme document image")
+        gov_photo, gov_attachment_kind, gov_extracted_text = attachment_input(
+            "Notice / form / document (optional)"
+        )
 
         with st.form("gov_form"):
             profile = st.selectbox(
@@ -771,13 +879,17 @@ Only use information supplied by the user.
         )
         can_generate = submitted and bool(question.strip() or gov_photo)
         image_file = gov_photo
+        image_kind = gov_attachment_kind
+        attachment_text = gov_extracted_text
         extra = "Do not request CNIC, passwords, bank credentials or OTP codes."
 
         if submitted and not can_generate:
             st.warning("Write a question or attach an image.")
 
     elif service_key in ["general", "improve", "student"]:
-        image_file = image_input("Upload a photo, screenshot or document image")
+        image_file, image_attachment_kind, image_extracted_text = attachment_input(
+            "Photo, screenshot or document (optional)"
+        )
 
         with st.form(f"{service_key}_form"):
             placeholder = {
@@ -829,6 +941,8 @@ Only use information supplied by the user.
             st.warning("Write something or attach an image.")
 
         prompt = question
+        image_kind = image_attachment_kind
+        attachment_text = image_extracted_text
 
     # ========================================================
     # GENERATION
@@ -845,13 +959,20 @@ Only use information supplied by the user.
             with st.spinner("Generating..."):
                 image_data_uri = None
 
-                if image_file is not None:
+                if image_file is not None and image_kind == "image":
                     raw = image_file.getvalue()
                     mime = image_file.type or "image/jpeg"
                     image_data_uri = (
                         f"data:{mime};base64,"
                         f"{base64.b64encode(raw).decode('utf-8')}"
                     )
+
+                if attachment_text:
+                    prompt = (
+                        prompt.strip()
+                        + "\n\nAttached document text:\n"
+                        + attachment_text[:50000]
+                    ).strip()
 
                 if image_data_uri and not prompt.strip():
                     prompt = (
@@ -931,8 +1052,12 @@ Only use information supplied by the user.
                     "The selected Groq model is unavailable for your account. "
                     "Update the model names in app.py."
                 )
+            elif "400" in message or "bad request" in message:
+                st.error(
+                    "The AI request was rejected. Check the selected file type/size and try again."
+                )
             else:
-                st.error("The AI request could not be completed. Please try again.")
+                st.error("The AI request could not be completed.")
 
             with st.expander("Technical details"):
                 st.caption(str(exc))
@@ -1084,8 +1209,11 @@ st.markdown("---")
 st.markdown(
     """
     <div class="footer">
-        <div class="today-project">Today's Project — Balochistan AI Assistant</div>
-        <div>Designed by Waheed Ali Hamouzai</div>
+        <div class="today-Hadith">
+            “Whoever follows a path in pursuit of knowledge, Allah will make easy for him a path to Paradise.”
+        </div>
+        <div>Sahih Muslim 2699a</div>
+        <div style="margin-top:.55rem;">Designed by Waheed Ali Hamouzai</div>
     </div>
     """,
     unsafe_allow_html=True,
