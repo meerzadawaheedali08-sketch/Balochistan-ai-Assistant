@@ -1,560 +1,734 @@
-import streamlit as st
-from groq import Groq
 import os
 from datetime import datetime
+from typing import Optional
 
-# ============================================
-# 1. SECURE API KEY LOADING
-# ============================================
-def load_api_key():
-    """Load API key from multiple secure sources."""
-    # Try 1: Colab Secrets (most secure for Colab)
-    try:
-        from google.colab import userdata
-        key = userdata.get('GROQ_API_KEY')
-        if key:
-            return key
-    except Exception:
-        pass
+import streamlit as st
+from groq import Groq
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_LEFT
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.units import inch
+from docx import Document
 
-    # Try 2: Streamlit Secrets (for Streamlit Cloud)
-    try:
-        if "GROQ_API_KEY" in st.secrets:
-            return st.secrets["GROQ_API_KEY"]
-    except Exception:
-        pass
+# ============================================================
+# BALOCHISTAN AI ASSISTANT — GitHub / Streamlit Cloud ready
+# ============================================================
 
-    # Try 3: Environment variable
-    return os.environ.get('GROQ_API_KEY')
-
-GROQ_API_KEY = load_api_key()
-
-if not GROQ_API_KEY:
-    st.error("🚨 **API Key not found!**")
-    st.info("""
-    **Kaise fix karo:**
-    - **Colab**: Sidebar 🔑 → Add `GROQ_API_KEY` → Notebook access ON
-    - **Streamlit Cloud**: App Settings → Secrets → Add `GROQ_API_KEY`
-    - **Local**: `.streamlit/secrets.toml` file banao
-    """)
-    st.stop()
-
-client = Groq(api_key=GROQ_API_KEY)
-
-# ============================================
-# 2. PAGE CONFIG
-# ============================================
 st.set_page_config(
     page_title="Balochistan AI Assistant",
     page_icon="🇵🇰",
-    layout="centered",
-    initial_sidebar_state="expanded"
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-# ============================================
-# 3. CUSTOM CSS — ATTRACTIVE + MOBILE FRIENDLY
-# ============================================
-st.markdown("""
-<style>
-    /* Import fonts */
-    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
-    
-    html, body, [class*="css"] {
-        font-family: 'Poppins', sans-serif;
-    }
-    
-    /* Main container */
-    .main .block-container {
-        padding: 1rem 0.8rem;
-        max-width: 900px;
-    }
-    
-    /* Hero header */
+# ---------- Secure configuration ----------
+def get_api_key() -> Optional[str]:
+    """Read the Groq key from Streamlit Secrets or environment variables."""
+    try:
+        key = st.secrets.get("GROQ_API_KEY", "")
+        if key:
+            return str(key).strip()
+    except Exception:
+        pass
+    return os.getenv("GROQ_API_KEY", "").strip() or None
+
+
+API_KEY = get_api_key()
+
+# ---------- UI styling ----------
+st.markdown(
+    """
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Nastaliq+Urdu&display=swap');
+
+    :root { --green: #087443; --deep: #063d2b; --mint: #eaf7ef; }
+    .stApp { background: linear-gradient(180deg, #f7fbf8 0%, #f3f7f5 100%); }
+    [data-testid="stHeader"] { background: rgba(0,0,0,0); }
+    .block-container { max-width: 1120px; padding-top: 1.2rem; padding-bottom: 2.5rem; }
+    html, body, [class*="css"] { font-family: Inter, sans-serif; }
     .hero {
-        background: linear-gradient(135deg, #01411C 0%, #046A38 50%, #0a8f4a 100%);
-        padding: 2rem 1.2rem;
-        border-radius: 20px;
-        text-align: center;
-        margin-bottom: 1.5rem;
-        box-shadow: 0 8px 25px rgba(1, 65, 28, 0.35);
-        position: relative;
-        overflow: hidden;
+        background: radial-gradient(circle at top right, rgba(255,255,255,.18), transparent 35%),
+                    linear-gradient(130deg, #063d2b 0%, #087443 58%, #11a365 100%);
+        border: 1px solid rgba(255,255,255,.18); border-radius: 26px;
+        padding: clamp(1.4rem, 4vw, 2.7rem); color: white; margin-bottom: 1.25rem;
+        box-shadow: 0 18px 45px rgba(6,61,43,.16);
     }
-    .hero::before {
-        content: '';
-        position: absolute;
-        top: -50%;
-        left: -50%;
-        width: 200%;
-        height: 200%;
-        background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
-        animation: shimmer 3s infinite linear;
+    .hero h1 { color: white; font-size: clamp(1.65rem, 4vw, 2.65rem); line-height: 1.15; margin: .35rem 0 .65rem; font-weight: 800; }
+    .hero p { color: #e3f7eb; margin: 0; font-size: clamp(.92rem, 2vw, 1.08rem); }
+    .eyebrow { display:inline-block; border:1px solid rgba(255,255,255,.3); border-radius:999px; padding:.32rem .7rem; font-size:.78rem; letter-spacing:.04em; }
+    .feature {
+        background: white; border: 1px solid #e2ece6; border-radius: 18px; padding: 1rem 1.05rem;
+        min-height: 118px; box-shadow: 0 5px 18px rgba(10,50,30,.045);
     }
-    @keyframes shimmer {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
+    .feature .emoji { font-size: 1.55rem; }
+    .feature h3 { font-size: 1rem; color: #123c2b; margin: .45rem 0 .25rem; }
+    .feature p { color: #617268; font-size: .86rem; margin: 0; line-height: 1.5; }
+    .section-label { color:#174b35; font-weight:750; font-size:1.05rem; margin:.5rem 0 .8rem; }
+    .stButton > button, .stDownloadButton > button {
+        border-radius: 12px; min-height: 2.85rem; font-weight: 650; border: 1px solid #087443;
+        transition: transform .15s ease, box-shadow .15s ease;
     }
-    .hero h1 {
-        color: white;
-        font-size: 1.8rem;
-        margin: 0;
-        font-weight: 700;
-        letter-spacing: -0.5px;
-        position: relative;
-        z-index: 1;
+    .stButton > button[kind="primary"] { background: linear-gradient(120deg,#087443,#075a37); color:white; }
+    .stButton > button:hover { transform: translateY(-1px); box-shadow: 0 7px 18px rgba(8,116,67,.13); }
+    div[data-baseweb="input"] > div, div[data-baseweb="textarea"] > div,
+    div[data-baseweb="select"] > div { border-radius: 12px; }
+    section[data-testid="stSidebar"] { background: #f0f7f2; border-right: 1px solid #e0ece4; }
+    .sidebar-brand { text-align:center; padding:.6rem 0 1rem; }
+    .sidebar-brand .flag { font-size:2.5rem; }
+    .sidebar-brand h2 { color:#063d2b; font-size:1.15rem; margin:.25rem 0; }
+    .sidebar-brand p { color:#65766c; font-size:.8rem; margin:0; }
+    .result-box { background:white; border:1px solid #dcebe1; border-radius:16px; padding:1rem; }
+    .footer { text-align:center; color:#718078; font-size:.8rem; padding:1.4rem .5rem .3rem; }
+    .urdu { font-family: 'Noto Nastaliq Urdu', serif; direction: rtl; text-align: right; line-height: 2.1; }
+    @media(max-width: 640px) {
+        .block-container { padding: .7rem .8rem 2rem; }
+        .hero { border-radius: 19px; padding: 1.35rem 1.1rem; }
+        .feature { min-height: auto; }
+        [data-testid="stSidebar"] { min-width: 80vw; }
     }
-    .hero p {
-        color: #E8F5E9;
-        font-size: 0.95rem;
-        margin: 0.5rem 0 0 0;
-        position: relative;
-        z-index: 1;
-    }
-    
-    /* Feature cards */
-    .feature-card {
-        background: white;
-        border-left: 5px solid #046A38;
-        padding: 1.1rem 1.2rem;
-        border-radius: 12px;
-        margin-bottom: 0.9rem;
-        box-shadow: 0 3px 12px rgba(0,0,0,0.08);
-        transition: all 0.3s ease;
-        cursor: pointer;
-    }
-    .feature-card:hover {
-        transform: translateX(6px);
-        box-shadow: 0 6px 20px rgba(4, 106, 56, 0.2);
-        border-left-color: #0a8f4a;
-    }
-    .feature-card h3 {
-        margin: 0 0 0.3rem 0;
-        color: #01411C;
-        font-size: 1.1rem;
-        font-weight: 600;
-    }
-    .feature-card p {
-        margin: 0;
-        color: #666;
-        font-size: 0.85rem;
-    }
-    
-    /* Buttons */
-    .stButton > button {
-        background: linear-gradient(135deg, #046A38, #01411C);
-        color: white !important;
-        border: none;
-        border-radius: 12px;
-        padding: 0.8rem 1.5rem;
-        font-weight: 600;
-        width: 100%;
-        font-size: 1rem;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 12px rgba(4, 106, 56, 0.3);
-        font-family: 'Poppins', sans-serif;
-    }
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(4, 106, 56, 0.45);
-        background: linear-gradient(135deg, #0a8f4a, #046A38);
-    }
-    .stButton > button:active {
-        transform: translateY(0);
-    }
-    
-    /* Inputs */
-    .stTextInput > div > div > input,
-    .stTextArea > div > div > textarea {
-        border-radius: 12px;
-        border: 2px solid #e0e0e0;
-        font-size: 0.95rem;
-        padding: 0.7rem;
-        transition: all 0.2s;
-        font-family: 'Poppins', sans-serif;
-    }
-    .stTextInput > div > div > input:focus,
-    .stTextArea > div > div > textarea:focus {
-        border-color: #046A38;
-        box-shadow: 0 0 0 3px rgba(4, 106, 56, 0.15);
-    }
-    
-    /* Selectbox */
-    .stSelectbox > div > div {
-        border-radius: 12px;
-    }
-    
-    /* Sidebar */
-    section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #f8f9fa 0%, #e8f5e9 100%);
-    }
-    section[data-testid="stSidebar"] .stRadio > label {
-        font-weight: 500;
-        color: #01411C;
-    }
-    
-    /* Success/Info/Warning boxes */
-    .stSuccess, .stInfo, .stWarning {
-        border-radius: 12px;
-    }
-    
-    /* Download button */
-    .stDownloadButton > button {
-        background: linear-gradient(135deg, #ffffff, #f0f0f0);
-        color: #01411C !important;
-        border: 2px solid #046A38;
-        border-radius: 12px;
-        font-weight: 600;
-    }
-    .stDownloadButton > button:hover {
-        background: linear-gradient(135deg, #046A38, #01411C);
-        color: white !important;
-    }
-    
-    /* Divider */
-    hr {
-        margin: 1.5rem 0;
-        border: none;
-        height: 1px;
-        background: linear-gradient(90deg, transparent, #046A38, transparent);
-    }
-    
-    /* Footer Hadith box */
-    .hadith-box {
-        background: linear-gradient(135deg, #f0f8f4 0%, #e8f5e9 100%);
-        border: 2px solid #046A38;
-        border-radius: 15px;
-        padding: 1.5rem 1.2rem;
-        text-align: center;
-        margin-top: 2rem;
-        box-shadow: 0 4px 15px rgba(4, 106, 56, 0.15);
-    }
-    .hadith-arabic {
-        font-size: 1.4rem;
-        color: #01411C;
-        font-weight: 600;
-        direction: rtl;
-        margin-bottom: 0.8rem;
-        line-height: 2;
-    }
-    .hadith-urdu {
-        font-size: 0.95rem;
-        color: #333;
-        line-height: 1.7;
-        margin-bottom: 0.7rem;
-    }
-    .hadith-ref {
-        font-size: 0.8rem;
-        color: #046A38;
-        font-weight: 600;
-        font-style: italic;
-    }
-    .credits {
-        text-align: center;
-        margin-top: 1.2rem;
-        padding-top: 1rem;
-        border-top: 1px dashed #046A38;
-        color: #01411C;
-        font-size: 0.9rem;
-        font-weight: 600;
-    }
-    .credits span {
-        color: #0a8f4a;
-    }
-    
-    /* Mobile */
-    @media (max-width: 768px) {
-        .hero h1 { font-size: 1.4rem; }
-        .hero p { font-size: 0.85rem; }
-        .hero { padding: 1.5rem 1rem; }
-        .feature-card h3 { font-size: 1rem; }
-        .feature-card p { font-size: 0.8rem; }
-        .stButton > button { padding: 0.9rem 1rem; font-size: 1rem; }
-        .hadith-arabic { font-size: 1.2rem; }
-    }
-    
-    /* Hide Streamlit default */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-</style>
-""", unsafe_allow_html=True)
-
-# ============================================
-# 4. SIDEBAR
-# ============================================
-with st.sidebar:
-    st.markdown("""
-    <div style="text-align:center; padding: 1.2rem 0;">
-        <div style="font-size: 3rem;">🇵🇰</div>
-        <h3 style="color: #01411C; margin: 0.3rem 0; font-weight: 700;">Balochistan AI</h3>
-        <p style="color: #666; font-size: 0.8rem; margin: 0;">Your Smart Assistant</p>
-    </div>
-    """, unsafe_allow_html=True)
-    st.markdown("---")
-
-feature = st.radio(
-    "📌 **Choose Service:**",
-    ["🏠 Home", "📧 Email Writer", "📄 CV Builder",
-     "🌾 Kisan Advisor", "🏥 Health Info", "🏛️ Govt Schemes"]
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("""
-<div style="text-align: center; font-size: 0.75rem; color: #666;">
-    ⚡ Powered by <b>Groq</b><br>
-    🧠 Model: <b>Llama 3.3 70B</b>
-</div>
-""", unsafe_allow_html=True)
-
-# ============================================
-# 5. SYSTEM PROMPTS
-# ============================================
-SYSTEM_PROMPTS = {
-    "📧 Email Writer": """You are a professional email assistant for users in Balochistan, Pakistan.
-Write clear, respectful, effective emails for jobs, business, or inquiries.
-Tone: Professional, polite, direct.
-If user writes in Urdu/Roman Urdu, respond in same language.
-Structure: Subject line, greeting, body, closing.""",
-
-    "📄 CV Builder": """You are a career assistant for Balochistan youth.
-Create professional CVs from rough Urdu/Roman Urdu input.
-Highlight skills relevant to Pakistani job market (NGOs, Govt, IT, Mining, Fisheries).
-Format: Clean, ATS-friendly, ready to copy.
-Include: Personal Info, Objective, Education, Experience, Skills, Languages.""",
-
-    "🌾 Kisan Advisor": """You are an agriculture expert for Balochistan farmers.
-Crops: Dates, Apples, Grapes, Wheat, Onions, Rice (in Khuzdar, Pishin, Mastung).
-Give advice in simple Urdu/Roman Urdu.
-Cover: crop diseases, weather, fertilizer, irrigation, government schemes.
-Mention local pesticides available in Quetta/Kalat markets.""",
-
-    "🏥 Health Info": """You are a basic health information assistant for Balochistan.
-Common issues: Malaria, Typhoid, TB, Diarrhea, Heatstroke, Dengue.
-Respond in Urdu/Roman Urdu.
-ALWAYS add: 'Yeh medical advice nahi hai. Doctor se milna zaroori hai.'
-Mention hospitals: Civil Hospital Quetta, BMC, DHQ hospitals.
-For emergencies, advise immediate hospital visit.""",
-
-    "🏛️ Govt Schemes": """You are a government scheme advisor for Balochistan.
-Known schemes: BISP, Sehat Sahulat Card, Kamyab Jawan Loan, Zarai Taraqiati Bank loans, Ehsaas Program, Benazir Income Support.
-For each scheme explain: Eligibility, Documents needed, Where to apply (Quetta office).
-Respond in Urdu/Roman Urdu."""
+# ---------- Language strings ----------
+LANGUAGES = ["English", "اردو", "Roman Urdu"]
+COPY = {
+    "English": {
+        "tagline": "A practical AI helper for learning, work, and everyday life.",
+        "choose": "Choose a service",
+        "language": "Response language",
+        "home": "Home",
+        "email": "Email Writer",
+        "cv": "CV Builder",
+        "kisan": "Kisan Advisor",
+        "health": "Health Information",
+        "gov": "Government Schemes",
+        "general": "AI Assistant",
+        "improve": "Text Improver",
+        "student": "Student Helper",
+        "input": "Your details / question",
+        "generate": "Generate response",
+        "clear": "Clear result",
+        "recent": "Recent results",
+        "ready": "Your result will appear here.",
+        "missing": "Please enter some details first.",
+        "key_missing": "Groq API key is not configured. Add GROQ_API_KEY in Streamlit Cloud → App → Settings → Secrets.",
+        "key_help": "For local development, add GROQ_API_KEY to your environment or .streamlit/secrets.toml. Never commit your key to GitHub.",
+        "disclaimer": "AI can make mistakes. Verify important information, especially health, legal, financial, and government-program details.",
+    },
+    "اردو": {
+        "tagline": "تعلیم، کام اور روزمرہ زندگی کے لیے آپ کا عملی اے آئی مددگار۔",
+        "choose": "سروس منتخب کریں",
+        "language": "جواب کی زبان",
+        "home": "ہوم",
+        "email": "ای میل رائٹر",
+        "cv": "سی وی بلڈر",
+        "kisan": "کسان رہنما",
+        "health": "صحت کی معلومات",
+        "gov": "سرکاری اسکیمیں",
+        "general": "اے آئی اسسٹنٹ",
+        "improve": "تحریر بہتر کریں",
+        "student": "طلبہ کی مدد",
+        "input": "اپنی تفصیل یا سوال لکھیں",
+        "generate": "جواب تیار کریں",
+        "clear": "نتیجہ صاف کریں",
+        "recent": "حالیہ نتائج",
+        "ready": "آپ کا جواب یہاں ظاہر ہوگا۔",
+        "missing": "براہِ کرم پہلے کچھ تفصیل لکھیں۔",
+        "key_missing": "Groq API key موجود نہیں۔ Streamlit Cloud کی App Settings → Secrets میں GROQ_API_KEY شامل کریں۔",
+        "key_help": "اپنی API key کو کبھی GitHub پر اپ لوڈ نہ کریں۔",
+        "disclaimer": "اے آئی سے غلطی ہو سکتی ہے۔ صحت، قانونی، مالی اور سرکاری معلومات کی تصدیق ضرور کریں۔",
+    },
+    "Roman Urdu": {
+        "tagline": "Parhai, kaam aur rozmarrah zindagi ke liye aap ka smart AI helper.",
+        "choose": "Service choose karein",
+        "language": "Jawab ki language",
+        "home": "Home",
+        "email": "Email Writer",
+        "cv": "CV Builder",
+        "kisan": "Kisan Advisor",
+        "health": "Health Info",
+        "gov": "Government Schemes",
+        "general": "AI Assistant",
+        "improve": "Text Improver",
+        "student": "Student Helper",
+        "input": "Apni details ya sawal likhein",
+        "generate": "Jawab Generate Karein",
+        "clear": "Result Clear Karein",
+        "recent": "Recent Results",
+        "ready": "Aap ka result yahan show hoga.",
+        "missing": "Pehle kuch details ya sawal likhein.",
+        "key_missing": "Groq API key set nahi hai. Streamlit Cloud → App Settings → Secrets mein GROQ_API_KEY add karein.",
+        "key_help": "API key ko kabhi GitHub par upload na karein.",
+        "disclaimer": "AI ghalti kar sakta hai. Health, legal, financial aur government info ko verify zaroor karein.",
+    },
 }
 
-# ============================================
-# 6. GENERATE FUNCTION
-# ============================================
-def generate_response(system_prompt, user_prompt):
-    """Call Groq API and display response with download option."""
-    with st.spinner("✍️ Generating... Please wait..."):
-        try:
-            completion = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.5,
-                max_tokens=2500
-            )
-            result = completion.choices[0].message.content
+SERVICE_LABEL_KEYS = ["email", "cv", "kisan", "health", "gov", "general", "improve", "student"]
+SERVICE_ICONS = {
+    "email": "✉️", "cv": "📄", "kisan": "🌾", "health": "🩺",
+    "gov": "🏛️", "general": "✨", "improve": "✍️", "student": "🎓",
+}
+SERVICE_DESCRIPTIONS = {
+    "email": "Write polished emails for jobs, university, and business.",
+    "cv": "Create a clear, ATS-friendly CV from your rough notes.",
+    "kisan": "Get general crop, irrigation, and farming guidance.",
+    "health": "Understand health topics and when to seek professional care.",
+    "gov": "Understand possible public schemes and application steps.",
+    "general": "Ask questions, brainstorm, plan, or learn a topic.",
+    "improve": "Rewrite text to make it clearer, more professional, or concise.",
+    "student": "Explain concepts, make study plans, quizzes, and summaries.",
+}
 
-            st.success("✅ **Done!** Neeche se copy karo:")
-            st.text_area("Result", result, height=320, label_visibility="collapsed")
+SYSTEM_PROMPTS = {
+    "email": """You are a professional email-writing assistant for people in Pakistan.
+Create a ready-to-send email with a useful subject, greeting, body, and sign-off.
+Do not invent qualifications, dates, promises, or facts. Ask for missing details only if essential.""",
+    "cv": """You are a professional CV and career-writing assistant.
+Create a clean, ATS-friendly CV using only the user's supplied facts. Never invent degrees,
+experience, dates, certifications, or skills. Use placeholders for missing contact details.
+Include a concise objective, education, experience, skills, and languages when relevant.""",
+    "kisan": """You provide general agricultural education relevant to Pakistan, including crops,
+soil, irrigation, pests, and fertilizer. Ask for location, crop, crop stage, and symptoms when
+needed. Do not guess pesticide doses or recommend hazardous chemical use; advise consulting
+local agriculture extension experts and following product labels.""",
+    "health": """You provide general health information, not diagnosis or treatment.
+Encourage a qualified clinician for personal medical decisions. For emergency symptoms
+such as severe breathing difficulty, chest pain, unconsciousness, stroke signs, or severe bleeding,
+tell the user to seek emergency medical help immediately. Do not prescribe medicines or dosages.""",
+    "gov": """You help users understand public assistance programs in Pakistan.
+Program rules, deadlines, and eligibility can change. Clearly distinguish general guidance from
+verified current facts; never claim a user is eligible or that a scheme is currently open without
+evidence. Recommend checking official government sources and avoid requesting sensitive IDs.""",
+    "general": """You are a helpful, accurate, respectful general-purpose AI assistant.
+Explain clearly, structure complex answers, and state uncertainty. Do not fabricate sources or facts.""",
+    "improve": """You are an expert editor. Improve the user's text according to their intended
+tone and purpose while preserving meaning. If no style is specified, make it clear, natural,
+grammatically correct, and concise. Return the revised text first, then brief notes if useful.""",
+    "student": """You are a friendly tutor. Explain concepts step by step at the learner's level.
+For study requests, use simple explanations, examples, key points, and a short practice quiz when
+useful. Help the learner understand rather than merely memorize. Do not pretend to know their syllabus.""",
+}
 
-            col1, col2 = st.columns(2)
-            with col1:
-                st.download_button(
-                    "📥 Download .txt",
-                    result,
-                    file_name=f"result_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                    mime="text/plain",
-                    use_container_width=True
-                )
-            with col2:
-                if st.button("🔄 Naya Likho", use_container_width=True):
-                    st.rerun()
+def language_instruction(language: str) -> str:
+    if language == "اردو":
+        return "Respond in natural Urdu script (اردو), not Hindi. Keep technical terms in English where helpful."
+    if language == "Roman Urdu":
+        return "Respond in natural Roman Urdu using Latin letters. Do not use Hindi/Devanagari script."
+    return "Respond in clear, natural English."
 
-        except Exception as e:
-            st.error(f"❌ **Error:** {str(e)}")
-            st.info("💡 Tip: Internet check karo, ya thori der baad try karo.")
+def get_client() -> Groq:
+    return Groq(api_key=API_KEY)
 
-# ============================================
-# 7. FOOTER — HADITH + CREDITS
-# ============================================
-def show_footer():
-    """Display footer with Hadith and credits."""
-    st.markdown("<hr>", unsafe_allow_html=True)
-    st.markdown("""
-    <div class="hadith-box">
-        <div class="hadith-arabic">خَيْرُ النَّاسِ أَنْفَعُهُمْ لِلنَّاسِ</div>
-        <div class="hadith-urdu">
-            <b>Tarjuma:</b> "Logon mein sab se behtar woh hai jo logon ke liye sab se zyada nafa-bakhsh ho."
-        </div>
-        <div class="hadith-ref">
-            📖 Reference: Sahih al-Jami' as-Saghir, Hadith No. 3289 — Imam al-Albani (Rahimahullah) ne ise Sahih kaha
-        </div>
-        <div class="credits">
-            🌐 Website Designed by <span>Waheed Ali Hamouzai</span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
 
-# ============================================
-# 8. PAGE RENDERING
-# ============================================
+def file_to_data_uri(uploaded_file):
+    """Convert an uploaded image to a data URI for Groq vision input."""
+    if not uploaded_file:
+        return None
 
-if feature == "🏠 Home":
-    st.markdown("""
+    data = uploaded_file.getvalue()
+    mime = uploaded_file.type or "image/jpeg"
+    encoded = base64.b64encode(data).decode("utf-8")
+    return f"data:{mime};base64,{encoded}"
+
+
+def build_pdf(text: str) -> bytes:
+    """Create a simple Unicode-friendly PDF using ReportLab."""
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=45,
+        leftMargin=45,
+        topMargin=45,
+        bottomMargin=45,
+    )
+    styles = getSampleStyleSheet()
+    body = ParagraphStyle(
+        "AIResult",
+        parent=styles["BodyText"],
+        fontName="Helvetica",
+        fontSize=10,
+        leading=15,
+        spaceAfter=8,
+        alignment=TA_LEFT,
+    )
+    title = ParagraphStyle(
+        "AITitle",
+        parent=styles["Title"],
+        fontName="Helvetica-Bold",
+        fontSize=16,
+        leading=20,
+        spaceAfter=15,
+    )
+
+    story = [
+        Paragraph("Balochistan AI Assistant", title),
+        Paragraph(
+            "Generated: " + datetime.now().strftime("%d %b %Y, %I:%M %p"),
+            body,
+        ),
+    ]
+
+    for paragraph in text.split("\n"):
+        safe = paragraph.strip()
+        if not safe:
+            story.append(Spacer(1, 6))
+            continue
+        safe = (
+            safe.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+        )
+        story.append(Paragraph(safe, body))
+
+    doc.build(story)
+    return buffer.getvalue()
+
+
+def build_docx(text: str) -> bytes:
+    """Create a DOCX document."""
+    document = Document()
+    document.add_heading("Balochistan AI Assistant", 0)
+    document.add_paragraph(
+        "Generated: " + datetime.now().strftime("%d %b %Y, %I:%M %p")
+    )
+
+    for paragraph in text.split("\n"):
+        document.add_paragraph(paragraph)
+
+    buffer = io.BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+def generate_multimodal_response(
+    service_key: str,
+    prompt: str,
+    language: str,
+    extra_instructions: str = "",
+    image_data_uri: str = None,
+) -> str:
+    """
+    Generate a response from text alone or text + image.
+    Image is sent directly to Groq; it is not stored by this app.
+    """
+    system = (
+        SYSTEM_PROMPTS[service_key]
+        + "\n\nResponse language: " + language_instruction(language)
+        + (
+            "\n\nAdditional instructions: " + extra_instructions
+            if extra_instructions else ""
+        )
+    )
+
+    if not image_data_uri:
+        return run_ai(service_key, prompt, language, extra_instructions)
+
+    messages = [
+        {"role": "system", "content": system},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": image_data_uri},
+                },
+            ],
+        },
+    ]
+
+    response = get_client().chat.completions.create(
+        model=VISION_MODEL,
+        messages=messages,
+        temperature=0.35,
+        max_tokens=3000,
+    )
+    return (response.choices[0].message.content or "").strip()
+
+
+def render_attachments(label="📷 Add a photo / screenshot / document image"):
+    """
+    Camera works on supported mobile/browser devices.
+    File uploader accepts common image formats.
+    """
+    st.markdown("### 📷 Add an image if needed")
+    st.caption(
+        "Take a photo with your camera, upload a screenshot/photo, "
+        "and optionally write a question about it."
+    )
+
+    camera_photo = st.camera_input(
+        "Take a photo",
+        key=f"camera_{label}",
+    )
+
+    uploaded_photo = st.file_uploader(
+        "Or upload an image",
+        type=["jpg", "jpeg", "png", "webp"],
+        key=f"upload_{label}",
+    )
+
+    selected = camera_photo or uploaded_photo
+
+    if selected:
+        st.image(selected, caption="Selected image", use_container_width=True)
+
+    return selected
+
+
+def render_downloads(result: str, prefix="balochistan_ai"):
+    """Offer multiple useful output formats."""
+    if not result:
+        return
+
+    safe_prefix = re.sub(r"[^a-zA-Z0-9_-]+", "_", prefix).strip("_") or "ai_result"
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    txt_name = f"{safe_prefix}_{stamp}.txt"
+    pdf_name = f"{safe_prefix}_{stamp}.pdf"
+    docx_name = f"{safe_prefix}_{stamp}.docx"
+
+    pdf_bytes = build_pdf(result)
+    docx_bytes = build_docx(result)
+
+    st.markdown("### 📥 Download result")
+
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        st.download_button(
+            "📄 TXT",
+            data=result.encode("utf-8"),
+            file_name=txt_name,
+            mime="text/plain",
+            use_container_width=True,
+        )
+
+    with c2:
+        st.download_button(
+            "📕 PDF",
+            data=pdf_bytes,
+            file_name=pdf_name,
+            mime="application/pdf",
+            use_container_width=True,
+        )
+
+    with c3:
+        st.download_button(
+            "📝 DOCX",
+            data=docx_bytes,
+            file_name=docx_name,
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            use_container_width=True,
+        )
+
+
+def run_ai(service_key: str, prompt: str, language: str, extra_instructions: str = "") -> str:
+    system = (
+        SYSTEM_PROMPTS[service_key]
+        + "\n\nResponse language: " + language_instruction(language)
+        + ("\n\nAdditional instructions: " + extra_instructions if extra_instructions else "")
+    )
+    response = get_client().chat.completions.create(
+        model=st.session_state.get("model", "llama-3.3-70b-versatile"),
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.45,
+        max_tokens=3000,
+    )
+    return (response.choices[0].message.content or "").strip()
+
+# ---------- Session state ----------
+if "history" not in st.session_state:
+    st.session_state.history = []
+if "result" not in st.session_state:
+    st.session_state.result = ""
+if "last_service" not in st.session_state:
+    st.session_state.last_service = ""
+
+# ---------- Sidebar ----------
+with st.sidebar:
+    st.markdown(
+        '<div class="sidebar-brand"><div class="flag">🇵🇰</div>'
+        '<h2>Balochistan AI</h2><p>Your smart everyday assistant</p></div>',
+        unsafe_allow_html=True,
+    )
+    language = st.selectbox("🌐 " + "Language / زبان", LANGUAGES, index=2)
+    t = COPY[language]
+    st.markdown("---")
+    page = st.radio(
+        t["choose"],
+        [t["home"]] + [SERVICE_ICONS[k] + "  " + t[k] for k in SERVICE_LABEL_KEYS],
+        label_visibility="visible",
+    )
+    with st.expander("⚙️ Settings"):
+        st.selectbox(
+            "AI model",
+            ["llama-3.3-70b-versatile"],
+            key="model",
+            help="The model must be available to your Groq account.",
+        )
+        if st.button("🧹 Clear session history", use_container_width=True):
+            st.session_state.history = []
+            st.session_state.result = ""
+            st.rerun()
+    st.markdown("---")
+    st.caption("⚡ Powered by Groq")
+    st.caption("🔒 API key is read server-side")
+
+# ---------- Hero ----------
+st.markdown(
+    f"""
     <div class="hero">
-        <h1>🇵🇰 Balochistan AI Assistant</h1>
-        <p>Aapka smart AI madadgar — har kaam ke liye</p>
+      <span class="eyebrow">🇵🇰 MADE FOR EVERYDAY LEARNING</span>
+      <h1>Balochistan AI Assistant</h1>
+      <p>{t["tagline"]}</p>
     </div>
-    """, unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True,
+)
 
-    st.markdown("### ✨ **Kya kya kar sakte ho?**")
+st.info(
+    "📷 You can now take a photo with your camera or upload an image, "
+    "then write a question about it. The AI can use both together."
+)
 
-    st.markdown("""
-    <div class="feature-card">
-        <h3>📧 Email Writer</h3>
-        <p>Professional emails likho — job, business, ya inquiry ke liye. Urdu/Roman Urdu mein bhi.</p>
-    </div>
-    <div class="feature-card">
-        <h3>📄 CV Builder</h3>
-        <p>Rough info se professional CV banao — seconds mein. ATS-friendly format.</p>
-    </div>
-    <div class="feature-card">
-        <h3>🌾 Kisan Advisor</h3>
-        <p>Fasal, keet, mausam, aur khad ki salah — Urdu mein. Balochistan ke crops ke liye.</p>
-    </div>
-    <div class="feature-card">
-        <h3>🏥 Health Info</h3>
-        <p>Basic health guidance — doctor ke paas jaane se pehle. Emergency warnings ke saath.</p>
-    </div>
-    <div class="feature-card">
-        <h3>🏛️ Govt Schemes</h3>
-        <p>BISP, Sehat Card, Kamyab Jawan Loan, Zarai loans — sab ek jagah. Apply karne ka process bhi.</p>
-    </div>
-    """, unsafe_allow_html=True)
+if not API_KEY:
+    st.error(t["key_missing"])
+    st.info(t["key_help"])
+    st.stop()
+
+# ---------- Home ----------
+if page == t["home"]:
+    st.markdown(f'<div class="section-label">✨ {t["choose"]}</div>', unsafe_allow_html=True)
+    cols = st.columns(2, gap="medium")
+    for i, key in enumerate(SERVICE_LABEL_KEYS):
+        with cols[i % 2]:
+            st.markdown(
+                f'<div class="feature"><div class="emoji">{SERVICE_ICONS[key]}</div>'
+                f'<h3>{t[key]}</h3><p>{SERVICE_DESCRIPTIONS[key]}</p></div>',
+                unsafe_allow_html=True,
+            )
+            if st.button("Open " + t[key], key=f"open_{key}", use_container_width=True):
+                st.session_state["selected_service"] = key
+                # Change the radio selection on the next rerun using a query-independent state.
+                st.session_state["home_open_service"] = key
+                st.rerun()
+
+    selected = st.session_state.get("home_open_service")
+    if selected:
+        st.info(f"Selected: {t[selected]}. Choose it from the sidebar to open the service.")
+    st.markdown("---")
+    st.markdown(f"**{t['disclaimer']}**")
+    st.markdown(
+        '<div class="footer">Designed with care • Balochistan AI Assistant<br>'
+        'AI-generated content may require independent verification.</div>',
+        unsafe_allow_html=True,
+    )
+
+else:
+    # Map translated sidebar label back to internal service key.
+    service_key = next(
+        (k for k in SERVICE_LABEL_KEYS if page == SERVICE_ICONS[k] + "  " + t[k]),
+        "general",
+    )
+    st.markdown(f"## {SERVICE_ICONS[service_key]} {t[service_key]}")
+    st.caption(SERVICE_DESCRIPTIONS[service_key])
+
+    # Service-specific structured inputs
+    if service_key == "email":
+        with st.form("email_form"):
+            name = st.text_input("Your name", placeholder="e.g., Ali Ahmed")
+            recipient = st.text_input("Recipient", placeholder="e.g., Hiring Manager")
+            purpose = st.text_area("Purpose and key details", height=150,
+                                   placeholder="Job application, inquiry, university request...")
+            tone = st.selectbox("Tone", ["Professional", "Friendly", "Formal", "Short and direct"])
+            submitted = st.form_submit_button(t["generate"], type="primary", use_container_width=True)
+        user_prompt = f"Sender name: {name or 'Not provided'}\nRecipient: {recipient or 'Not provided'}\nPurpose/details: {purpose}\nTone: {tone}\nWrite the email."
+        can_generate = submitted and bool(purpose.strip())
+        if submitted and not purpose.strip():
+            st.warning(t["missing"])
+        extra = f"Use a {tone.lower()} tone."
+    elif service_key == "cv":
+        with st.form("cv_form"):
+            cv_details = st.text_area(t["input"], height=230,
+                placeholder="Name (optional), education, experience, skills, projects, languages...")
+            cv_target = st.selectbox("Target role", ["General", "Internship", "Entry-level job", "Experienced role"])
+            submitted = st.form_submit_button(t["generate"], type="primary", use_container_width=True)
+        user_prompt = f"Create a CV for this target: {cv_target}\nUser details:\n{cv_details}"
+        can_generate = submitted and bool(cv_details.strip())
+        if submitted and not cv_details.strip():
+            st.warning(t["missing"])
+        extra = "Use clean headings and bullet points. Do not invent facts."
+    elif service_key == "gov":
+        with st.form("gov_form"):
+            profile = st.selectbox("I am a...", ["Student", "Job seeker", "Farmer", "Woman", "Senior citizen", "Small business owner", "Other"])
+            location = st.text_input("District / province (optional)", placeholder="e.g., Nasirabad, Balochistan")
+            details = st.text_area(t["input"], height=130, placeholder="Share only non-sensitive details relevant to your question.")
+            submitted = st.form_submit_button(t["generate"], type="primary", use_container_width=True)
+        user_prompt = f"Profile: {profile}\nLocation: {location}\nDetails/question: {details}\nExplain potentially relevant programs, likely documents, and how to verify through official channels. Do not claim current availability without verification."
+        can_generate = submitted and bool((details + location).strip())
+        if submitted and not (details + location).strip():
+            st.warning(t["missing"])
+        extra = "Never ask for CNIC, bank account, passwords, or one-time codes."
+    else:
+        placeholders = {
+            "kisan": "Crop, district, crop stage, symptoms, irrigation, or farming question...",
+            "health": "Describe the general health topic or question. Avoid sharing identifying information.",
+            "general": "Ask anything you want to understand, plan, or create...",
+            "improve": "Paste the text you want improved. Mention tone or audience if relevant...",
+            "student": "Topic, class/semester, what confuses you, or a subject to revise...",
+        }
+
+        # Image input is available for every general-purpose service.
+        image_file = render_attachments(service_key)
+
+        with st.form(f"{service_key}_form"):
+            user_prompt = st.text_area(
+                t["input"],
+                height=210,
+                placeholder=placeholders.get(service_key, "Type here..."),
+            )
+
+            extra = ""
+
+            if service_key == "improve":
+                extra = st.selectbox(
+                    "Writing style",
+                    [
+                        "Clear and natural",
+                        "Professional",
+                        "Shorter",
+                        "More persuasive",
+                        "Academic",
+                    ],
+                )
+
+            elif service_key == "student":
+                level = st.selectbox(
+                    "Learning level",
+                    ["Beginner", "Intermediate", "Advanced"],
+                )
+                extra = (
+                    f"Explain at {level.lower()} level. "
+                    "Include an example and a few practice questions when useful."
+                )
+
+            if image_file:
+                st.caption(
+                    "🖼️ Image attached. Your text question will be used together "
+                    "with the image."
+                )
+
+            submitted = st.form_submit_button(
+                t["generate"],
+                type="primary",
+                use_container_width=True,
+            )
+
+        can_generate = submitted and bool(user_prompt.strip() or image_file)
+
+        if submitted and not (user_prompt.strip() or image_file):
+            st.warning(
+                "Please write a question or attach an image first."
+            )
+
+
+    if service_key == "health":
+        st.warning("Health information is educational only, not a diagnosis. Seek professional care for personal medical concerns. For emergencies, contact local emergency services or go to the nearest emergency department.")
+    elif service_key == "gov":
+        st.info("Government scheme eligibility, deadlines, and application procedures can change. Verify through official sources before sharing documents or paying anyone.")
+    elif service_key == "kisan":
+        st.info("For crop-specific chemical or pesticide decisions, consult a local agriculture extension officer and follow the product label.")
+
+    if can_generate:
+        try:
+            with st.spinner("✨ Preparing your response..."):
+                image_data_uri = file_to_data_uri(image_file) if image_file else None
+                final_prompt = user_prompt.strip()
+
+                if image_data_uri and not final_prompt:
+                    final_prompt = (
+                        "Analyze the attached image and explain what is visible. "
+                        "Point out useful details and tell me what I should know."
+                    )
+
+                result = generate_multimodal_response(
+                    service_key,
+                    final_prompt,
+                    language,
+                    extra,
+                    image_data_uri=image_data_uri,
+                )
+            st.session_state.result = result
+            st.session_state.last_service = service_key
+            st.session_state.history.insert(0, {
+                "service": t[service_key],
+                "time": datetime.now().strftime("%d %b %Y, %I:%M %p"),
+                "prompt": user_prompt[:180],
+                "result": result,
+            })
+            st.session_state.history = st.session_state.history[:8]
+        except Exception as exc:
+            # Avoid displaying raw request details or secrets to the user.
+            message = str(exc).lower()
+            if "rate_limit" in message or "429" in message:
+                st.error("Groq rate limit reached. Please wait a little and try again.")
+            elif "authentication" in message or "401" in message or "invalid_api_key" in message:
+                st.error("Groq rejected the API key. Check GROQ_API_KEY in Streamlit Secrets.")
+            elif "model" in message and ("not found" in message or "decommission" in message):
+                st.error("The configured Groq model may be unavailable. Update the model name in app.py.")
+            else:
+                st.error("Something went wrong while contacting the AI service. Please try again.")
+            with st.expander("Technical details"):
+                st.caption("For debugging, check the app logs in Streamlit Cloud. Do not share your API key.")
+
+    if st.session_state.result:
+        st.markdown("---")
+        st.markdown("### ✅ Result")
+        st.text_area(
+            "Generated response",
+            value=st.session_state.result,
+            height=360,
+            key="display_result",
+        )
+
+        render_downloads(
+            st.session_state.result,
+            prefix=st.session_state.last_service or "balochistan_ai",
+        )
+
+        if st.button("🧹 Clear result", use_container_width=True):
+            st.session_state.result = ""
+            st.rerun()
+
+    with st.expander("🕘 Recent results"):
+        if not st.session_state.history:
+            st.caption("Your recent results in this session will appear here.")
+        else:
+            for idx, item in enumerate(st.session_state.history):
+                st.markdown(f"**{item['service']}** · {item['time']}")
+                st.caption(item["prompt"])
+                with st.expander(f"View result #{idx + 1}"):
+                    st.text_area("Result", value=item["result"], height=220, key=f"history_{idx}")
+                    st.download_button(
+                        "Download this result",
+                        data=item["result"],
+                        file_name=f"result_{idx + 1}.txt",
+                        mime="text/plain",
+                        key=f"download_history_{idx}",
+                    )
 
     st.markdown("---")
-    st.info("👈 **Sidebar se service choose karo** — mobile pe top-left ☰ icon dabao")
+    st.caption(t["disclaimer"])
 
-    show_footer()
-
-elif feature == "📧 Email Writer":
-    st.markdown("""
-    <div class="hero">
-        <h1>📧 Email Writer</h1>
-        <p>Professional email likho seconds mein</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    sender = st.text_input("👤 **Aapka Naam**", placeholder="Ahmed Khan")
-    recipient = st.text_input("🎯 **Kis ko bhejni hai?**", placeholder="Hiring Manager, ABC Company")
-    purpose = st.text_area(
-        "✍️ **Email ka maqsad**",
-        height=130,
-        placeholder="Job application for Software Developer position. I have 2 years experience in Python and Excel."
-    )
-
-    if st.button("🚀 **Generate Email**", use_container_width=True):
-        if not purpose:
-            st.warning("⚠️ Email ka maqsad likhna zaroori hai!")
-        else:
-            generate_response(
-                SYSTEM_PROMPTS["📧 Email Writer"],
-                f"Sender: {sender}\nRecipient: {recipient}\nPurpose: {purpose}\n\nWrite the email."
-            )
-    show_footer()
-
-elif feature == "📄 CV Builder":
-    st.markdown("""
-    <div class="hero">
-        <h1>📄 CV Builder</h1>
-        <p>Rough info se professional CV banao</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    user_input = st.text_area(
-        "📝 **Apni tafseel likho** (Urdu / Roman Urdu / English)",
-        height=180,
-        placeholder="Mera naam Ahmed hai, Quetta se. 2 saal experience Excel aur data entry. B.Com degree. English aur Urdu bolta hoon."
-    )
-
-    if st.button("🚀 **Generate CV**", use_container_width=True):
-        if not user_input:
-            st.warning("⚠️ Apni info likhna zaroori hai!")
-        else:
-            generate_response(SYSTEM_PROMPTS["📄 CV Builder"], user_input)
-    show_footer()
-
-elif feature == "🌾 Kisan Advisor":
-    st.markdown("""
-    <div class="hero">
-        <h1>🌾 Kisan Advisor</h1>
-        <p>Fasal aur kheti ki salah — Urdu mein</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    query = st.text_area(
-        "❓ **Apna sawal likhein**",
-        height=130,
-        placeholder="Mere apple ke patte peele ho rahe hain, kya karun?"
-    )
-
-    if st.button("🚀 **Salah Lo**", use_container_width=True):
-        if not query:
-            st.warning("⚠️ Sawal likhna zaroori hai!")
-        else:
-            generate_response(SYSTEM_PROMPTS["🌾 Kisan Advisor"], query)
-    show_footer()
-
-elif feature == "🏥 Health Info":
-    st.markdown("""
-    <div class="hero">
-        <h1>🏥 Health Info</h1>
-        <p>Basic health guidance — doctor se pehle</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.warning("⚠️ **Zaroori:** Ye medical advice nahi hai. Doctor se milna zaroori hai.")
-
-    symptoms = st.text_area(
-        "🩺 **Apni takleef batayein**",
-        height=130,
-        placeholder="Bukhar aur sir dard 3 din se hai, kamzori bhi hai"
-    )
-
-    if st.button("🚀 **Info Lo**", use_container_width=True):
-        if not symptoms:
-            st.warning("⚠️ Takleef likhna zaroori hai!")
-        else:
-            generate_response(SYSTEM_PROMPTS["🏥 Health Info"], symptoms)
-    show_footer()
-
-elif feature == "🏛️ Govt Schemes":
-    st.markdown("""
-    <div class="hero">
-        <h1>🏛️ Govt Schemes</h1>
-        <p>Apne liye schemes dhundho</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    profile = st.selectbox(
-        "👤 **Main kaun hoon?**",
-        ["Kisan (Farmer)", "Student", "Job seeker", "Woman", "Senior citizen", "Other"]
-    )
-
-    details = st.text_area(
-        "📋 **Thori tafseel (optional)**",
-        height=100,
-        placeholder="Meri umar 45 hai, income 20,000/month, 3 bache hain"
-    )
-
-    if st.button("🚀 **Schemes Dhundho**", use_container_width=True):
-        generate_response(
-            SYSTEM_PROMPTS["🏛️ Govt Schemes"],
-            f"Profile: {profile}\nDetails: {details}\n\nRecommend relevant schemes."
-        )
-    show_footer()
+st.markdown(
+    '<div class="footer">Balochistan AI Assistant • Built for learning and everyday productivity</div>',
+    unsafe_allow_html=True,
+)
