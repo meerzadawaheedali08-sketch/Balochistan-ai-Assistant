@@ -39,7 +39,8 @@ from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from pypdf import PdfReader
+from pypdf import PdfReader, PdfWriter
+from reportlab.pdfgen import canvas as rl_canvas
 
 try:  # optional: needed only for Urdu text inside PDF files
     import arabic_reshaper
@@ -104,7 +105,6 @@ AR_RE = re.compile(r"[\u0600-\u06FF\u0750-\u077F]")
 # ============================================================
 
 ICON_PATHS = {
-    "email": '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
     "cv": '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
     "kisan": '<path d="M7 20h10"/><path d="M10 20c5.5-2.5.8-6.4 3-10"/><path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z"/><path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z"/>',
     "health": '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/><path d="M3.22 12H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27"/>',
@@ -112,10 +112,10 @@ ICON_PATHS = {
     "general": '<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/>',
     "improve": '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
     "student": '<path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/>',
+    "roadmap": '<polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" x2="9" y1="3" y2="18"/><line x1="15" x2="15" y1="6" y2="21"/>',
 }
 
 SERVICES = {
-    "email": {"title": "Email Writer", "short": "Professional, ready-to-send emails", "color": "#2563eb"},
     "cv": {"title": "CV Builder", "short": "Designed CVs with your photo", "color": "#7c3aed"},
     "kisan": {"title": "Kisan Advisor", "short": "Crop and farming guidance", "color": "#16a34a"},
     "health": {"title": "Health Information", "short": "Understand health topics", "color": "#e11d48"},
@@ -123,6 +123,7 @@ SERVICES = {
     "general": {"title": "AI Assistant", "short": "Ask, plan and create", "color": "#0891b2"},
     "improve": {"title": "Text Improver", "short": "Make your writing better", "color": "#db2777"},
     "student": {"title": "Student Helper", "short": "Study and understand", "color": "#4f46e5"},
+    "roadmap": {"title": "Skill Roadmap", "short": "Step-by-step plan to learn any skill", "color": "#0d9488"},
 }
 
 
@@ -144,10 +145,6 @@ def icon_tile(key: str, size: int = 48) -> str:
 
 
 SYSTEM_PROMPTS = {
-    "email": """You are a professional email-writing assistant.
-Create a ready-to-send email with a useful subject, greeting, clear body and sign-off.
-Use only facts supplied by the user. Do not invent qualifications, dates, promises or facts.""",
-
     "kisan": """You provide general agricultural education relevant to Pakistan.
 Help with crops, soil, irrigation, common symptoms and general farming practices.
 Ask for crop, location and crop stage when important.
@@ -171,6 +168,15 @@ Explain clearly, structure complex answers and state uncertainty instead of inve
     "improve": """You are an expert editor.
 Improve the user's text while preserving its original meaning.
 Make it clear, natural, grammatically correct and appropriate for the requested audience and tone.""",
+
+    "roadmap": """You are an expert learning coach who designs realistic skill roadmaps.
+Build a clear plan that fits EXACTLY the time and daily hours the learner gives. Do not exceed or ignore their time.
+Structure: 1) Short overview and total study hours. 2) Prerequisites. 3) Phases, each with a time share, the topics to learn,
+and a practice task. 4) A week-by-week plan when the duration is 12 weeks or less, otherwise a month-by-month plan with weekly focus.
+5) Two or three portfolio/practice projects of rising difficulty. 6) Milestones to check progress. 7) Common mistakes to avoid.
+8) A short "what to do next" after the plan ends.
+For resources, name the kind of free resource and good search keywords. Never invent URLs, course names or prices.
+Be honest that results depend on consistent practice. Adapt depth to the learner's current level.""",
 
     "student": """You are a friendly tutor.
 Teach step by step at the user's level. Use simple explanations, examples, key points and
@@ -750,6 +756,31 @@ def cv_html(d: dict, photo: Optional[bytes], template: str, accent: str) -> str:
     return f"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><style>{css}</style></head><body>{body}</body></html>"
 
 
+CREDIT_LINE = "Designed by Waheed Ali Hamouzai"
+
+
+def stamp_credit(pdf_bytes: bytes) -> bytes:
+    """Write the credit line at the bottom of the LAST page of every PDF."""
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    overlay_buf = io.BytesIO()
+    c = rl_canvas.Canvas(overlay_buf, pagesize=A4)
+    c.setFont("Helvetica-Oblique", 8.5)
+    c.setFillColor(HexColor("#6b7280"))
+    c.drawCentredString(A4[0] / 2, 17, CREDIT_LINE)
+    c.save()
+    overlay = PdfReader(io.BytesIO(overlay_buf.getvalue())).pages[0]
+
+    writer = PdfWriter()
+    last = len(reader.pages) - 1
+    for i, page in enumerate(reader.pages):
+        if i == last:
+            page.merge_page(overlay)
+        writer.add_page(page)
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
 # ------------------------------------------------------------
 # CV: PDF
 # ------------------------------------------------------------
@@ -968,7 +999,7 @@ def build_cv_pdf(d: dict, photo: Optional[bytes], template: str, accent: str) ->
         ] + _pdf_main_flow(d, S, "#111827", content_w, include_side=True)
 
     doc.build(story)
-    return buf.getvalue()
+    return stamp_credit(buf.getvalue())
 
 
 # ------------------------------------------------------------
@@ -1185,7 +1216,7 @@ def build_text_pdf(title: str, text: str) -> bytes:
             story.append(Paragraph(_md_inline(xml_escape(line)), s_body))
 
     doc.build(story)
-    return buf.getvalue()
+    return stamp_credit(buf.getvalue())
 
 
 def _docx_runs(paragraph, text: str):
@@ -1492,31 +1523,7 @@ else:
         image_file, image_kind, attachment_text = None, None, ""
         prompt, extra, go = "", "", False
 
-        if service_key == "email":
-            image_file, image_kind, attachment_text = attachment_input(
-                service_key, "file or photo (optional)")
-
-            with st.form("email_form"):
-                name = st.text_input("Your name")
-                recipient = st.text_input("Recipient / organization")
-                purpose = st.text_area("What should the email say?", height=180,
-                                       placeholder="Explain the purpose and important details.")
-                tone = st.selectbox("Tone", ["Professional", "Formal", "Friendly", "Short and direct"])
-                submitted = st.form_submit_button("Generate email")
-
-            prompt = (
-                f"Sender: {name or 'Not provided'}\n"
-                f"Recipient: {recipient or 'Not provided'}\n"
-                f"Purpose/details:\n{purpose}\n"
-                f"Tone: {tone}\n"
-                "Create a ready-to-send email."
-            )
-            extra = f"Use a {tone.lower()} tone."
-            go = submitted and bool(purpose.strip() or image_file is not None or attachment_text)
-            if submitted and not go:
-                st.warning("Please enter the email details.")
-
-        elif service_key == "kisan":
+        if service_key == "kisan":
             image_file, image_kind, attachment_text = attachment_input(
                 service_key, "crop photo or document (optional)")
 
@@ -1579,6 +1586,40 @@ else:
             go = submitted and bool(question.strip() or image_file is not None)
             if submitted and not go:
                 st.warning("Write a question or attach an image.")
+
+        elif service_key == "roadmap":
+            with st.form("roadmap_form"):
+                skill = st.text_input("Skill you want to learn", placeholder="e.g. Python, Graphic Design, English Speaking")
+                r1, r2 = st.columns(2)
+                with r1:
+                    duration = st.number_input("Time you have", min_value=1, max_value=60, value=3, step=1)
+                with r2:
+                    unit = st.selectbox("Unit", ["Weeks", "Months"], index=1)
+                r3, r4 = st.columns(2)
+                with r3:
+                    hours = st.slider("Hours per day", 0.5, 8.0, 2.0, 0.5)
+                with r4:
+                    days = st.selectbox("Study days per week", [3, 4, 5, 6, 7], index=2)
+                level = st.selectbox("Your current level", ["Complete beginner", "Know the basics", "Intermediate"])
+                goal = st.text_input("Your goal (optional)", placeholder="e.g. get a freelance job, pass an exam, build my own app")
+                submitted = st.form_submit_button("Create roadmap")
+
+            total_weeks = duration * (4.3 if unit == "Months" else 1)
+            total_hours = round(total_weeks * days * hours)
+            prompt = (
+                f"Skill: {skill}\n"
+                f"Total time available: {duration} {unit.lower()}\n"
+                f"Study days per week: {days}\n"
+                f"Hours per day: {hours}\n"
+                f"Approximate total study hours: {total_hours}\n"
+                f"Current level: {level}\n"
+                f"Goal: {goal or 'Not specified'}\n"
+                "Create the roadmap now."
+            )
+            extra = "Use clear headings and short bullet points so it is easy to follow on a phone."
+            go = submitted and bool(skill.strip())
+            if submitted and not go:
+                st.warning("Please write the skill name.")
 
         else:  # general / improve / student
             image_file, image_kind, attachment_text = attachment_input(
