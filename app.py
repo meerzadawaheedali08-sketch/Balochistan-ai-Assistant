@@ -26,10 +26,10 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-TEXT_MODEL = "openai/gpt-oss-20b"
-VISION_MODEL = "qwen/qwen3.8-27b"
+TEXT_MODEL = "llama-3.3-70b-versatile"
+VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
-LANGUAGES = ["English", "اردو", "Roman English"]
+LANGUAGES = ["English", "اردو", "Roman Urdu"]
 
 SERVICES = {
     "email": {
@@ -1209,7 +1209,7 @@ st.markdown("---")
 st.markdown(
     """
     <div class="footer">
-        <div class="today-Hadith">
+        <div class="today-project">
             “Whoever follows a path in pursuit of knowledge, Allah will make easy for him a path to Paradise.”
         </div>
         <div>Sahih Muslim 2699a</div>
