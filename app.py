@@ -26,10 +26,10 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-TEXT_MODEL = "llama-3.3-70b-versatile"
-VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+TEXT_MODEL = "openai/gpt-oss-20b"
+VISION_MODEL = "qwen/qwen3.8-27b"
 
-LANGUAGES = ["English", "اردو", "Roman Urdu"]
+LANGUAGES = ["English", "اردو", "Roman English"]
 
 SERVICES = {
     "email": {
